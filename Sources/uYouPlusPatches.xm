@@ -110,7 +110,7 @@ static inline NSString* extractIdWithFormat(GPBUnknownFieldSet *fields, NSIntege
     NSString *id = [[NSString alloc] initWithData:[idField.lengthDelimitedList firstObject] encoding:NSUTF8StringEncoding];
     return [NSString stringWithFormat:format, id];
 }
-static BOOL showNativeShareSheet(NSString *serializedShareEntity) {
+static BOOL showNativeShareSheet(NSString *serializedShareEntity, UIView *sourceView) {
     GPBMessage *shareEntity = [%c(GPBMessage) deserializeFromString:serializedShareEntity];
     GPBUnknownFieldSet *fields = shareEntity.unknownFields;
     NSString *shareUrl;
@@ -141,15 +141,18 @@ static BOOL showNativeShareSheet(NSString *serializedShareEntity) {
     if (!shareUrl)
         return NO;
 
-    UIViewController *topViewController = [%c(YTUIUtils) topViewControllerForPresenting];
     UIActivityViewController *activityViewController = [[UIActivityViewController alloc] initWithActivityItems:@[shareUrl] applicationActivities:nil];
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPhone) {
-        [topViewController presentViewController:activityViewController animated:YES completion:^{}];
-    } else {
-        UIPopoverController *popoverController = [[UIPopoverController alloc] initWithContentViewController:activityViewController];
-        CGRect rect = CGRectMake(CGRectGetMidX(topViewController.view.bounds), CGRectGetMaxY(topViewController.view.bounds), 0, 0);
-        [popoverController presentPopoverFromRect:rect inView:topViewController.view permittedArrowDirections:UIPopoverArrowDirectionAny animated:YES];
+    activityViewController.excludedActivityTypes = @[UIActivityTypeAssignToContact, UIActivityTypePrint];
+
+    UIViewController *topViewController = [%c(YTUIUtils) topViewControllerForPresenting];
+
+    if (activityViewController.popoverPresentationController) {
+        activityViewController.popoverPresentationController.sourceView = topViewController.view;
+        activityViewController.popoverPresentationController.sourceRect = [sourceView convertRect:sourceView.bounds toView:topViewController.view];
     }
+
+    [topViewController presentViewController:activityViewController animated:YES completion:nil];
+
     return YES;
 }
 
@@ -163,7 +166,7 @@ static BOOL showNativeShareSheet(NSString *serializedShareEntity) {
     YTIShareEntityEndpoint *shareEntityEndpoint = [self.command getExtension:shareEntityEndpointDescriptor];
     if (!shareEntityEndpoint.hasSerializedShareEntity)
         return %orig;
-    if (!showNativeShareSheet(shareEntityEndpoint.serializedShareEntity))
+    if (!showNativeShareSheet(shareEntityEndpoint.serializedShareEntity, self.fromView))
         return %orig;
 }
 %end
@@ -171,7 +174,7 @@ static BOOL showNativeShareSheet(NSString *serializedShareEntity) {
 /* ------------------- iPhone Layout ------------------- */
 
 %hook ELMPBShowActionSheetCommand
-- (void)executeWithCommandContext:(id)_context handler:(id)_handler {
+- (void)executeWithCommandContext:(ELMCommandContext*)context handler:(id)_handler {
     if (!self.hasOnAppear)
         return %orig;
     GPBExtensionDescriptor *innertubeCommandDescriptor = [%c(YTIInnertubeCommandExtensionRoot) innertubeCommand];
@@ -184,7 +187,7 @@ static BOOL showNativeShareSheet(NSString *serializedShareEntity) {
     YTIUpdateShareSheetCommand *updateShareSheetCommand = [innertubeCommand getExtension:updateShareSheetCommandDescriptor];
     if (!updateShareSheetCommand.hasSerializedShareEntity)
         return %orig;
-    if (!showNativeShareSheet(updateShareSheetCommand.serializedShareEntity))
+    if (!showNativeShareSheet(updateShareSheetCommand.serializedShareEntity, context.context.fromView))
         return %orig;
 }
 %end
@@ -345,7 +348,4 @@ static void refreshUYouAppearance() {
 
     // Disable uYou's playback speed controls (prevent crash on video playback https://github.com/therealFoxster/uYouPlus/issues/2#issuecomment-1894912963)
     // [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"showPlaybackRate"];
-
-    // Disable uYou's adblock
-    [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"removeYouTubeAds"];
 }
